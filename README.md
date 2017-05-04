@@ -23,7 +23,6 @@ Run "make" in the program directory to compile
 --thread                <int>           Number of thread. Default 1
 --maq                   <int>           Mapping quality threshold. Default 20
 --baq                   <int>           Base quality threshold, Default 0
---cov                   <int>           Minimum coverage applied to BASEQ_depth. Default 0
 --filter_duplicate      [0, 1]          Whether to filter reads that are marked as duplicate. 0=off, 1=on. Default 1
 --filter_improper_pair  [0, 1]          Whether to filter reads that are marked as improperly paired. 0=off, 1=on. Default 0
 --filter_qc_failed      [0, 1]          Whether to filter reads that are marked as failed quality control. 0=off, 1=on. Default 0
