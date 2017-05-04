@@ -28,10 +28,10 @@ Run "make" in the program directory to compile
 --filter_qc_failed      [0, 1]          Whether to filter reads that are marked as failed quality control. 0=off, 1=on. Default 0
 --filter_indel          [0, 1]          Whether to filter reads that contain indels. 0=off, 1=on. Default 0
 --filter_non_primary    [0, 1]          Whether to filter reads that are marked as non primary alignment. Default 0
---positive_count        [0, 1]          Whether to output positive strand read counts DPP/RDP/ADP. 0=off, 1=on. Default 1"
---fragment_count        [0, 1]          Whether to output fragment read counts DPF/RDF/ADF. 0=off, 1=on. Default 0"
---suppress_warning      <int>           Only print a limit number of warnings for each type. Default 3"
---help                                  Print command line usage" << endl;
+--positive_count        [0, 1]          Whether to output positive strand read counts DPP/RDP/ADP. 0=off, 1=on. Default 1
+--fragment_count        [0, 1]          Whether to output fragment read counts DPF/RDF/ADF. 0=off, 1=on. Default 0
+--suppress_warning      <int>           Only print a limit number of warnings for each type. Default 3
+--help                                  Print command line usage
 
 
 
