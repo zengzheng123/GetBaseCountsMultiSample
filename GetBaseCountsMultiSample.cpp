@@ -33,7 +33,7 @@ using namespace std;
 using namespace BamTools;
 
 
-const string VERSION = "GetBaseCountsMultiSample 1.1.9";
+const string VERSION = "GetBaseCountsMultiSample 1.2.0";
 
 string input_fasta_file;
 map<string, string> input_bam_files;
@@ -58,6 +58,7 @@ int num_thread = 1;
 string count_method = "DMP";
 bool input_variant_is_maf = false;
 bool input_variant_is_vcf = false;
+bool output_maf = false;
 const size_t BIN_SIZE = 16*1024;
 const float FRAGMENT_REF_WEIGHT = 0.5;
 const float FRAGMENT_ALT_WEIGHT = 0.5;
@@ -65,67 +66,18 @@ enum Count_Type {DP, RD, AD, DPP, RDP, ADP, DPF, RDF, ADF, NUM_COUNT_TYPE}; // N
 bool has_chr;
 int max_warning_per_type = 3;
 int warning_overlapping_multimapped = 0;
+string maf_output_center = "msk";
+string maf_output_genome_build = "hg19";
 
-void printUsage(string msg = "")
+bool isNumber(const string& s)  //check if a string(chrom name) is number
 {
-    cout << endl;
-    cout << VERSION << endl;
-    cout << "Usage: " << endl;
-    cout << "[REQUIRED ARGUMENTS]" << endl;
-    cout << "\t--fasta                 <string>                        Input reference sequence file" << endl;
-    cout << "\t--bam                   <string>                        Input bam file, in the format of SAMPLE_NAME:BAM_FILE. This paramter need to be specified at least once" << endl;
-    cout << "\t                                                        e.g: --bam s_EV_crc_007:Proj_4495.eta_indelRealigned_recal_s_EV_crc_007_M3.bam." << endl;
-    cout << "\t--maf                   <string>                        Input variant file in TCGA maf format. --maf or --vcf need to be specified at least once. But --maf and --vcf are mutually exclusive" << endl;
-    cout << "\t--vcf                   <string>                        Input variant file in vcf-like format(the first 5 columns are used). --maf or --vcf need to be specified at least once. But --maf and --vcf are mutually exclusive" << endl;
-    cout << "\t--output                <string>                        Output file" << endl;
-    cout << endl;
-    cout << "[OPTIONAL ARGUMENTS]" << endl;
-    cout << "\t--thread                <int>                           Number of thread. Default " << num_thread << endl;
-    cout << "\t--maq                   <int>                           Mapping quality threshold. Default 20" << endl;
-    cout << "\t--baq                   <int>                           Base quality threshold, Default 0" << endl;
-    cout << "\t--filter_duplicate      [0, 1]                          Whether to filter reads that are marked as duplicate. 0=off, 1=on. Default 1" << endl;
-    cout << "\t--filter_improper_pair  [0, 1]                          Whether to filter reads that are marked as improperly paired. 0=off, 1=on. Default 0" << endl;
-    cout << "\t--filter_qc_failed      [0, 1]                          Whether to filter reads that are marked as failed quality control. 0=off, 1=on. Default 0" << endl;
-    cout << "\t--filter_indel          [0, 1]                          Whether to filter reads that have indels. 0=off, 1=on. Default 0" << endl;
-    cout << "\t--filter_non_primary    [0, 1]                          Whether to filter reads that are marked as non primary alignment. Default 0" << endl;
-    cout << "\t--positive_count        [0, 1]                          Whether to output positive strand read counts DPP/RDP/ADP. 0=off, 1=on. Default 1" << endl;
-    cout << "\t--fragment_count        [0, 1]                          Whether to output fragment read counts DPF/RDF/ADF. 0=off, 1=on. Default 0" << endl;
-    cout << "\t--suppress_warning      <int>                           Only print a limit number of warnings for each type. Default " << max_warning_per_type << endl;
-    cout << "\t--help                                                  Print command line usage" << endl;
-    cout << endl;
-    cout << "[ADVANCED ARGUMENTS, CHANGING THESE ARGUMENTS WILL SIGNIFICANTLY AFFECT MEMORY USAGE AND RUNNING TIME. USE WITH CAUTION]" << endl;
-    cout << "\t--max_block_size        <int>                           The maximum size of vcf chunks that can be processed at once per thread. Default 10,000" << endl;
-    cout << "\t--max_block_dist        <int>                           The longest spanning region (bp) of vcf chunks that can be processed at once per thread. Default 100,000" << endl;
-    cout << endl;
-    if(!msg.empty())
-        cerr << msg << endl;
-    exit(1);
+    string::const_iterator it = s.begin();
+    while (it != s.end() && isdigit(*it))
+    {
+        it++;
+    }
+    return !s.empty() && it == s.end();
 }
-
-
-static struct option long_options[] =
-{
-    {"fasta",                   required_argument,      0,     'f'},
-    {"bam",                     required_argument,      0,     'b'},
-    {"maf",                     required_argument,      0,     'v'},
-    {"vcf",                     required_argument,      0,     'V'},
-    {"output",                  required_argument,      0,     'o'},
-    {"thread",                  required_argument,      0,     't'},
-    {"maq",                     required_argument,      0,     'Q'},
-    {"baq",                     required_argument,      0,     'q'},
-    {"filter_duplicate",        required_argument,      0,     'd'},
-    {"filter_improper_pair",    required_argument,      0,     'p'},
-    {"filter_qc_failed",        required_argument,      0,     'l'},
-    {"filter_indel",            required_argument,      0,     'i'},
-    {"filter_non_primary",      required_argument,      0,     'n'},
-    {"positive_count",          required_argument,      0,     'P'},
-    {"fragment_count",          required_argument,      0,     'F'},
-    {"suppress_warning",        required_argument,      0,     'w'},
-    {"max_block_size",          required_argument,      0,     'M'},
-    {"max_block_dist",          required_argument,      0,     'm'},
-    {"help",                    no_argument,            0,     'h'},
-    {0, 0, 0, 0}
-};
 
 void split(const string& line, char delim, vector<std::string>& parsed_item, bool ignore_empty_item = false) // split a string with specified delimiter
 {
@@ -173,15 +125,70 @@ void addVariantFile(string variant_string)  // add a variant file to input list
     input_variant_files.push_back(variant_string);
 }
 
-bool isNumber(const string& s)  //check if a string(chrom name) is number
+
+void printUsage(string msg = "")
 {
-    string::const_iterator it = s.begin();
-    while (it != s.end() && isdigit(*it))
-    {
-        it++;
-    }
-    return !s.empty() && it == s.end();
+    cout << endl;
+    cout << VERSION << endl;
+    cout << "Usage: " << endl;
+    cout << "[REQUIRED ARGUMENTS]" << endl;
+    cout << "\t--fasta                 <string>                        Input reference sequence file" << endl;
+    cout << "\t--bam                   <string>                        Input bam file, in the format of SAMPLE_NAME:BAM_FILE. This paramter need to be specified at least once" << endl;
+    cout << "\t                                                        e.g: --bam s_EV_crc_007:Proj_4495.eta_indelRealigned_recal_s_EV_crc_007_M3.bam." << endl;
+    cout << "\t--maf                   <string>                        Input variant file in TCGA maf format. --maf or --vcf need to be specified at least once. But --maf and --vcf are mutually exclusive" << endl;
+    cout << "\t--vcf                   <string>                        Input variant file in vcf-like format(the first 5 columns are used). --maf or --vcf need to be specified at least once. But --maf and --vcf are mutually exclusive" << endl;
+    cout << "\t--output                <string>                        Output file" << endl;
+    cout << endl;
+    cout << "[OPTIONAL ARGUMENTS]" << endl;
+    cout << "\t--omaf                                                  Output the result in maf format" << endl;
+    cout << "\t--thread                <int>                           Number of thread. Default " << num_thread << endl;
+    cout << "\t--maq                   <int>                           Mapping quality threshold. Default 20" << endl;
+    cout << "\t--baq                   <int>                           Base quality threshold, Default 0" << endl;
+    cout << "\t--filter_duplicate      [0, 1]                          Whether to filter reads that are marked as duplicate. 0=off, 1=on. Default 1" << endl;
+    cout << "\t--filter_improper_pair  [0, 1]                          Whether to filter reads that are marked as improperly paired. 0=off, 1=on. Default 0" << endl;
+    cout << "\t--filter_qc_failed      [0, 1]                          Whether to filter reads that are marked as failed quality control. 0=off, 1=on. Default 0" << endl;
+    cout << "\t--filter_indel          [0, 1]                          Whether to filter reads that have indels. 0=off, 1=on. Default 0" << endl;
+    cout << "\t--filter_non_primary    [0, 1]                          Whether to filter reads that are marked as non primary alignment. Default 0" << endl;
+    cout << "\t--positive_count        [0, 1]                          Whether to output positive strand read counts DPP/RDP/ADP. 0=off, 1=on. Default 1" << endl;
+    cout << "\t--fragment_count        [0, 1]                          Whether to output fragment read counts DPF/RDF/ADF. 0=off, 1=on. Default 0" << endl;
+    cout << "\t--suppress_warning      <int>                           Only print a limit number of warnings for each type. Default " << max_warning_per_type << endl;
+    cout << "\t--help                                                  Print command line usage" << endl;
+    cout << endl;
+    cout << "[ADVANCED ARGUMENTS, CHANGING THESE ARGUMENTS WILL SIGNIFICANTLY AFFECT MEMORY USAGE AND RUNNING TIME. USE WITH CAUTION]" << endl;
+    cout << "\t--max_block_size        <int>                           The maximum size of variant chunks that can be processed at once per thread. Default 10,000" << endl;
+    cout << "\t--max_block_dist        <int>                           The longest spanning region (bp) of variant chunks that can be processed at once per thread. Default 100,000" << endl;
+    cout << endl;
+    if(!msg.empty())
+        cerr << msg << endl;
+    exit(1);
 }
+
+
+static struct option long_options[] =
+{
+    {"fasta",                   required_argument,      0,     'f'},
+    {"bam",                     required_argument,      0,     'b'},
+    {"maf",                     required_argument,      0,     'v'},
+    {"vcf",                     required_argument,      0,     'V'},
+    {"output",                  required_argument,      0,     'o'},
+    {"thread",                  required_argument,      0,     't'},
+    {"omaf",                    no_argument,            0,     'O'},
+    {"maq",                     required_argument,      0,     'Q'},
+    {"baq",                     required_argument,      0,     'q'},
+    {"filter_duplicate",        required_argument,      0,     'd'},
+    {"filter_improper_pair",    required_argument,      0,     'p'},
+    {"filter_qc_failed",        required_argument,      0,     'l'},
+    {"filter_indel",            required_argument,      0,     'i'},
+    {"filter_non_primary",      required_argument,      0,     'n'},
+    {"positive_count",          required_argument,      0,     'P'},
+    {"fragment_count",          required_argument,      0,     'F'},
+    {"suppress_warning",        required_argument,      0,     'w'},
+    {"max_block_size",          required_argument,      0,     'M'},
+    {"max_block_dist",          required_argument,      0,     'm'},
+    {"help",                    no_argument,            0,     'h'},
+    {0, 0, 0, 0}
+};
+
 
 void parseOption(int argc, const char* argv[])
 {
@@ -191,7 +198,7 @@ void parseOption(int argc, const char* argv[])
     int option_index = 0;
     do
     {
-        next_option = getopt_long(argc, const_cast<char**>(argv), "f:b:v:V:o:t:Q:q:d:p:l:i:n:P:F:w:M:m:h", long_options, &option_index);
+        next_option = getopt_long(argc, const_cast<char**>(argv), "f:b:v:V:o:t:OQ:q:d:p:l:i:n:P:F:w:M:m:h", long_options, &option_index);
         switch(next_option)
         {
             case 'f':
@@ -217,6 +224,9 @@ void parseOption(int argc, const char* argv[])
                 else
                     printUsage("[ERROR] Invalid value for --thread");
                 break;
+            case 'O':
+                output_maf = true;
+                break;
             case 'Q':
                 if(isNumber(optarg))
                     mapping_quality_threshold = atoi(optarg);
@@ -239,37 +249,37 @@ void parseOption(int argc, const char* argv[])
                 if(isNumber(optarg))
                     filter_improper_pair = atoi(optarg);
                 else
-                    printUsage("[ERROR] Invalid value for --filter_improper_pair"); 
+                    printUsage("[ERROR] Invalid value for --filter_improper_pair");
                 break;
             case 'l':
                 if(isNumber(optarg))
                     filter_qc_failed = atoi(optarg);
                 else
-                    printUsage("[ERROR] Invalid value for --filter_qc_failed"); 
+                    printUsage("[ERROR] Invalid value for --filter_qc_failed");
                 break;
             case 'i':
                 if(isNumber(optarg))
                     filter_indel = atoi(optarg);
                 else
-                    printUsage("[ERROR] Invalid value for --filter_indel"); 
+                    printUsage("[ERROR] Invalid value for --filter_indel");
                 break;
             case 'n':
                 if(isNumber(optarg))
                     filter_non_primary = atoi(optarg);
                 else
-                    printUsage("[ERROR] Invalid value for --filter_non_primary"); 
+                    printUsage("[ERROR] Invalid value for --filter_non_primary");
                 break;
             case 'P':
                 if(isNumber(optarg))
                     output_stranded_count = atoi(optarg);
                 else
-                    printUsage("[ERROR] Invalid value for --positive_count"); 
+                    printUsage("[ERROR] Invalid value for --positive_count");
                 break;
             case 'F':
                 if(isNumber(optarg))
                     output_fragment_count = atoi(optarg);
                 else
-                    printUsage("[ERROR] Invalid value for --fragment_count"); 
+                    printUsage("[ERROR] Invalid value for --fragment_count");
                 break;
             case 'w':
                 if(isNumber(optarg))
@@ -281,13 +291,13 @@ void parseOption(int argc, const char* argv[])
                 if(isNumber(optarg))
                     maximum_variant_block_size = atoi(optarg);
                 else
-                    printUsage("[ERROR] Invalid value for --max_block_size"); 
+                    printUsage("[ERROR] Invalid value for --max_block_size");
                 break;
             case 'm':
                 if(isNumber(optarg))
                     maximum_variant_block_distance = atoi(optarg);
                 else
-                    printUsage("[ERROR] Invalid value for --max_block_dist"); 
+                    printUsage("[ERROR] Invalid value for --max_block_dist");
                 break;
             case 'h':
                 printUsage();
@@ -328,12 +338,13 @@ void parseOption(int argc, const char* argv[])
         printUsage("[ERROR] --fragment_count should be 0 or 1");
     if(input_variant_is_maf && input_variant_is_vcf)
         printUsage("[ERROR] --maf and --vcf are mutually exclusive");
+    if(input_variant_is_vcf && output_maf)
+        printUsage("[ERROR] --omaf can only be used with --maf input");
     base_quality_threshold += quality_scale;
 #ifdef _DEBUG
     cout << "[DEBUG] Parsing options complete." << endl;
 #endif
 }
-
 
 
 void outputReferenceSequence(string output_fastafile, map<string, string>& ref_seq, vector<string>& orignal_header)
@@ -556,7 +567,7 @@ public:
         }
     }
 
-    VariantEntry(string _chrom, int _pos, int _end_pos, string _ref, string _alt, bool _snp, bool _dnp, bool _insertion, bool _deletion, string _tumor_sample, string _normal_sample, string _gene, string _effect, int _t_ref_count, int _t_alt_count, int _n_ref_count, int _n_alt_count)
+    VariantEntry(string _chrom, int _pos, int _end_pos, string _ref, string _alt, bool _snp, bool _dnp, bool _insertion, bool _deletion, string _tumor_sample, string _normal_sample, string _gene, string _effect, int _t_ref_count, int _t_alt_count, int _n_ref_count, int _n_alt_count, int _maf_pos, int _maf_end_pos, string _maf_ref, string _maf_alt, string _caller)
     {
         chrom = _chrom;
         pos = _pos;
@@ -575,7 +586,13 @@ public:
         t_alt_count = _t_alt_count;
         n_ref_count = _n_ref_count;
         n_alt_count = _n_alt_count;
-
+        
+        maf_pos = _maf_pos;
+        maf_end_pos = _maf_end_pos;
+        maf_ref = _maf_ref;
+        maf_alt = _maf_alt;
+        caller = _caller;
+        
         duplicate_variant_ptr = NULL;
         base_count = new float*[input_bam_files.size()];
         for (int i = 0; i < input_bam_files.size(); i++)
@@ -583,8 +600,7 @@ public:
             base_count[i] = new float[NUM_COUNT_TYPE](); // initialized to 0
         }
     }
-
-
+    
     ~VariantEntry() 
     {
         for (int i = 0; i < input_bam_files.size(); i++)
@@ -619,6 +635,11 @@ public:
     int n_alt_count;                            // normal alt count from input maf
     float **base_count;    //<sample_name, <count_type, count> >
     VariantEntry* duplicate_variant_ptr;        // pointer to the first identical variant, no need to do duplicate count for the same variant of different normal/tumor pair
+    string maf_ref;
+    string maf_alt;
+    int maf_pos;
+    int maf_end_pos;
+    string caller;
 };
 
 
@@ -768,7 +789,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
            header_index_hash.find("Tumor_Sample_Barcode") == header_index_hash.end() || header_index_hash.find("Matched_Norm_Sample_Barcode") == header_index_hash.end() ||
            header_index_hash.find("t_ref_count") == header_index_hash.end() || header_index_hash.find("t_alt_count") == header_index_hash.end() ||
            header_index_hash.find("n_ref_count") == header_index_hash.end() || header_index_hash.find("n_alt_count") == header_index_hash.end() ||
-           header_index_hash.find("Variant_Classification") == header_index_hash.end())
+           header_index_hash.find("Variant_Classification") == header_index_hash.end() || header_index_hash.find("Caller") == header_index_hash.end())
         {
             cerr << "[ERROR] Incorrect TCGA MAF file header:" << endl;
             cerr << "[ERROR] " << line << endl;
@@ -779,12 +800,23 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
         {
             vector<string> variant_items;
             split(line, '\t', variant_items);
+            if(variant_count == 0)
+            {
+                if(header_index_hash.find("Center") != header_index_hash.end())
+                    maf_output_center = variant_items[header_index_hash["Center"]];
+                if(header_index_hash.find("NCBI_Build") != header_index_hash.end())
+                    maf_output_genome_build = variant_items[header_index_hash["NCBI_Build"]];
+            }
             string gene = variant_items[header_index_hash["Hugo_Symbol"]];
             string chrom = variant_items[header_index_hash["Chromosome"]];
             int pos = atoi(variant_items[header_index_hash["Start_Position"]].c_str()) - 1; //convert to 0-indexed, to be consistent with bam entry
             int end_pos = atoi(variant_items[header_index_hash["End_Position"]].c_str()) - 1;
             string ref = variant_items[header_index_hash["Reference_Allele"]];
             string alt = variant_items[header_index_hash["Tumor_Seq_Allele2"]];
+            int maf_pos = pos;
+            int maf_end_pos = end_pos;
+            string maf_ref = ref;
+            string maf_alt = alt;
             if(alt.empty())
                 alt = variant_items[header_index_hash["Tumor_Seq_Allele1"]];
             if(alt.empty())
@@ -804,6 +836,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
             int n_ref_count = atoi(variant_items[header_index_hash["n_ref_count"]].c_str());
             int n_alt_count = atoi(variant_items[header_index_hash["n_alt_count"]].c_str());
             string effect = variant_items[header_index_hash["Variant_Classification"]];
+            string caller = variant_items[header_index_hash["Caller"]];
             if(effect.empty())
             {
                 if(header_index_hash.find("ONCOTATOR_VARIANT_CLASSIFICATION") != header_index_hash.end() && !(variant_items[header_index_hash["ONCOTATOR_VARIANT_CLASSIFICATION"]].empty()) )
@@ -860,7 +893,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
                 cerr << "[WARNING] Unrecognized variants type in input variant file, you won't get any counts for it" << endl;
                 cerr << "[WARNING] " << line << endl;
             }
-            VariantEntry *new_variant_ptr = new VariantEntry(chrom, pos, end_pos, ref, alt, snp, dnp, insertion, deletion, tumor_sample, normal_sample, gene, effect, t_ref_count, t_alt_count, n_ref_count, n_alt_count);
+            VariantEntry *new_variant_ptr = new VariantEntry(chrom, pos, end_pos, ref, alt, snp, dnp, insertion, deletion, tumor_sample, normal_sample, gene, effect, t_ref_count, t_alt_count, n_ref_count, n_alt_count, maf_pos, maf_end_pos, maf_ref, maf_alt, caller);
             variant_vec.push_back(new_variant_ptr);
             variant_count ++;
         }
@@ -894,10 +927,9 @@ void sortAndIndexVariant(vector<VariantEntry *>& variant_vec, vector<pair<size_t
     size_t start_index = 0;
     size_t end_index = 0;
     size_t cur_num_variant = 0;
-    //map<pair< pair<string, int>, pair<string, string> >, VariantEntry*> duplicate_variant_ptr_map;
+    map<pair< pair<string, int>, pair<string, string> >, VariantEntry*> duplicate_variant_ptr_map;
     for(size_t i = 0; i < variant_vec.size(); i++)    
     {
-        /* disable remove duplicate for now
         pair< pair<string, int>, pair<string, string> > variant_key = make_pair(make_pair(variant_vec[i]->chrom, variant_vec[i]->pos), make_pair(variant_vec[i]->ref, variant_vec[i]->alt));
         if(duplicate_variant_ptr_map.find(variant_key) == duplicate_variant_ptr_map.end()) // there is no duplicate variant yet
         {
@@ -906,7 +938,7 @@ void sortAndIndexVariant(vector<VariantEntry *>& variant_vec, vector<pair<size_t
         else // there is already a duplicate variant
         {
             variant_vec[i]->duplicate_variant_ptr = duplicate_variant_ptr_map[variant_key];
-        }*/
+        }
         if((cur_num_variant >= maximum_variant_block_size) || (i != start_index && (variant_vec[i]->chrom != variant_vec[start_index]->chrom || variant_vec[i]->pos - variant_vec[start_index]->pos > maximum_variant_block_distance)))
         {
             end_index = i - 1;
@@ -917,7 +949,6 @@ void sortAndIndexVariant(vector<VariantEntry *>& variant_vec, vector<pair<size_t
         cur_num_variant ++;
     }
     variant_block_vec.push_back(make_pair(start_index, variant_vec.size() - 1));
-    //cout << "[INFO] " <<  duplicate_variant_ptr_map.size() << " out of " << variant_vec.size() << " variants are unique" << endl;
 }
 
 void sortAndIndexVariant16K(vector<VariantEntry *>& variant_vec, vector<pair<size_t, size_t> >& variant_block_vec) // sort and bin the variants, each thread takes a bin to process each time, bin determined by BIN_SIZE(smallest bam file block)
@@ -933,10 +964,9 @@ void sortAndIndexVariant16K(vector<VariantEntry *>& variant_vec, vector<pair<siz
     size_t start_index = 0;
     size_t end_index = 0;
     size_t cur_num_variant = 0;
-    //map<pair< pair<string, int>, pair<string, string> >, VariantEntry*> duplicate_variant_ptr_map;
+    map<pair< pair<string, int>, pair<string, string> >, VariantEntry*> duplicate_variant_ptr_map;
     for(size_t i = 0; i < variant_vec.size(); i++)
     {
-        /* disable remove duplicate for now
         pair< pair<string, int>, pair<string, string> > variant_key = make_pair(make_pair(variant_vec[i]->chrom, variant_vec[i]->pos), make_pair(variant_vec[i]->ref, variant_vec[i]->alt));
         if(duplicate_variant_ptr_map.find(variant_key) == duplicate_variant_ptr_map.end()) // there is no duplicate variant yet
         {
@@ -945,7 +975,7 @@ void sortAndIndexVariant16K(vector<VariantEntry *>& variant_vec, vector<pair<siz
         else // there is already a duplicate variant
         {
             variant_vec[i]->duplicate_variant_ptr = duplicate_variant_ptr_map[variant_key];
-        }*/
+        }
         if(i != start_index && (variant_vec[i]->chrom != variant_vec[start_index]->chrom || (variant_vec[i]->pos / BIN_SIZE) != (variant_vec[start_index]->pos / BIN_SIZE)) )
         {
             end_index = i - 1;
@@ -956,11 +986,10 @@ void sortAndIndexVariant16K(vector<VariantEntry *>& variant_vec, vector<pair<siz
         cur_num_variant ++;
     }
     variant_block_vec.push_back(make_pair(start_index, variant_vec.size() - 1));
-    //cout << "[INFO] " <<  duplicate_variant_ptr_map.size() << " out of " << variant_vec.size() << " variants are unique" << endl;
 }
 
 
-void printCountsVCF(vector<VariantEntry *>& variant_vec) // print counts for vcf-like variants
+void printCountsVcf(vector<VariantEntry *>& variant_vec) // print counts for vcf-like variants
 {
     ofstream output_fs(output_file.c_str());
     if(!output_fs)
@@ -1014,7 +1043,7 @@ void printCountsVCF(vector<VariantEntry *>& variant_vec) // print counts for vcf
     output_fs.close();
 }
 
-void printCountsFILLOUT(vector<VariantEntry *>& variant_vec) // print counts for tcga maf variants
+void printCountsFillout(vector<VariantEntry *>& variant_vec) // print counts for tcga maf variants
 {
     ofstream output_fs(output_file.c_str());
     if(!output_fs)
@@ -1052,6 +1081,51 @@ void printCountsFILLOUT(vector<VariantEntry *>& variant_vec) // print counts for
                 output_fs << ";DPF=" << counts[DPF]  << ";RDF=" << counts[RDF] << ";ADF=" << counts[ADF];
         }
         output_fs << endl;
+    }
+    output_fs.close();
+}
+
+void printCountsMaf(vector<VariantEntry *>& variant_vec) // print counts for tcga maf variants
+{
+    ofstream output_fs(output_file.c_str());
+    if(!output_fs)
+    {
+        cerr << "[ERROR] fail to open output file: " << output_file << endl;
+        exit(1);
+    }
+    cout << "[INFO] Writing results to " << output_file << endl;
+    output_fs << "Hugo_Symbol\tEntrez_Gene_Id\tCenter\tNCBI_Build\tChromosome\tStart_Position\tEnd_Position\tStrand\tVariant_Classification\tVariant_Type\tReference_Allele\tTumor_Seq_Allele1\tTumor_Seq_Allele2\tdbSNP_RS\tdbSNP_Val_Status\tTumor_Sample_Barcode\tMatched_Norm_Sample_Barcode\tMatch_Norm_Seq_Allele1\tMatch_Norm_Seq_Allele2\tTumor_Validation_Allele1\tTumor_Validation_Allele2\tMatch_Norm_Validation_Allele1\tMatch_Norm_Validation_Allele2\tVerification_Status\tValidation_Status\tMutation_Status\tSequencing_Phase\tSequence_Source\tValidation_Method\tScore\tBAM_File\tSequencer\tt_ref_count\tt_alt_count\tn_ref_count\tn_alt_count\tCaller\tt_total_count\tt_variant_frequency";
+    if(output_stranded_count)
+        output_fs << "\tt_total_count_forward\tt_ref_count_forward\tt_alt_count_forward";
+    if(output_fragment_count)
+        output_fs << "\tt_total_count_fragment\tt_ref_count_fragment\tt_alt_count_fragment";
+    output_fs << endl;
+    
+    for(size_t i = 0; i < variant_vec.size(); i++)
+    {
+        if(variant_vec[i]->duplicate_variant_ptr != NULL)
+            continue;
+        float** base_count_ptr = variant_vec[i]->base_count;
+        string variant_type = "";
+        if(variant_vec[i]->snp || variant_vec[i]->dnp)
+            variant_type = "SNP";
+        else if(variant_vec[i]->insertion)
+            variant_type = "INS";
+        else if(variant_vec[i]->deletion)
+            variant_type = "DEL";
+        for(size_t j = 0; j < output_sample_order.size(); j++)
+        {
+            float *counts = base_count_ptr[ bam_index_map[output_sample_order[j]] ];
+            float vf_count = 0.0;
+            if(counts[DP] > 0)
+                vf_count = counts[AD] / counts[DP];
+            output_fs << variant_vec[i]->gene << "\t" << "" << "\t" << maf_output_center << "\t" << maf_output_genome_build << "\t" << variant_vec[i]->chrom << "\t" << (variant_vec[i]->maf_pos + 1) << "\t" << (variant_vec[i]->maf_end_pos + 1) << "\t" << "+" << "\t" << variant_vec[i]->effect << "\t" << variant_type << "\t" << variant_vec[i]->maf_ref << "\t" << variant_vec[i]->maf_alt << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << output_sample_order[j] << "\t" << "Normal" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "UNPAIRED" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << counts[RD] << "\t" << counts[AD] << "\t" << "" << "\t" << "" << "\t" << variant_vec[i]->caller << "\t" << counts[DP] << "\t" << vf_count;
+            if(output_stranded_count)
+                output_fs << "\t" << counts[DPP]  << "\t" << counts[RDP] << "\t" << counts[ADP];
+            if(output_fragment_count)
+                output_fs << "\t" << counts[DPF]  << "\t" << counts[RDF] << "\t" << counts[ADF];
+            output_fs << endl;
+        }
     }
     output_fs.close();
 }
@@ -1784,9 +1858,21 @@ void getBaseCounts()
         }
     }
     if(input_variant_is_maf)
-        printCountsFILLOUT(variant_vec);
+    {
+        if(output_maf)
+        {
+            printCountsMaf(variant_vec);
+        }
+        else
+        {
+            printCountsFillout(variant_vec);
+        }
+    }
     else if(input_variant_is_vcf)
-        printCountsVCF(variant_vec);
+    {
+
+        printCountsVcf(variant_vec);
+    }
     cleanupVariant(variant_vec);
     cout << "[INFO] Finished processing" << endl;
 }
