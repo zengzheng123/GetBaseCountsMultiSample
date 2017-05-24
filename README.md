@@ -19,7 +19,7 @@ Run "make" in the program directory to compile
 --output                <string>        Output file
 
 [OPTIONAL ARGUMENTS]
-
+--omaf                                  Output the result in maf format
 --thread                <int>           Number of thread. Default 1
 --maq                   <int>           Mapping quality threshold. Default 20
 --baq                   <int>           Base quality threshold, Default 0
