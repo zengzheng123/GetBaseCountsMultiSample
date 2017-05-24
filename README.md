@@ -1,4 +1,4 @@
-# GetBaseCountsMultiSample 1.1.9
+# GetBaseCountsMultiSample
 
 ##### Calculate the base counts in multiple BAM files for all the sites in a given VCF file or MAF file
 
