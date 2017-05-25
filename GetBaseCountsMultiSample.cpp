@@ -33,7 +33,7 @@ using namespace std;
 using namespace BamTools;
 
 
-const string VERSION = "GetBaseCountsMultiSample 1.2.0";
+const string VERSION = "GetBaseCountsMultiSample 1.2.1";
 
 string input_fasta_file;
 map<string, string> input_bam_files;
@@ -789,13 +789,14 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
            header_index_hash.find("Tumor_Sample_Barcode") == header_index_hash.end() || header_index_hash.find("Matched_Norm_Sample_Barcode") == header_index_hash.end() ||
            header_index_hash.find("t_ref_count") == header_index_hash.end() || header_index_hash.find("t_alt_count") == header_index_hash.end() ||
            header_index_hash.find("n_ref_count") == header_index_hash.end() || header_index_hash.find("n_alt_count") == header_index_hash.end() ||
-           header_index_hash.find("Variant_Classification") == header_index_hash.end() || header_index_hash.find("Caller") == header_index_hash.end())
+           header_index_hash.find("Variant_Classification") == header_index_hash.end())
         {
-            cerr << "[ERROR] Incorrect TCGA MAF file header:" << endl;
-            cerr << "[ERROR] " << line << endl;
+            cerr << "[ERROR] Incorrect input MAF file header. Make sure the following column headers exist in the MAF file:" << endl;
+            cerr << "[ERROR] Hugo_Symbol, Chromosome, Start_Position, End_Position, Reference_Allele, Tumor_Seq_Allele1, Tumor_Seq_Allele2, Tumor_Sample_Barcode, Matched_Norm_Sample_Barcode, t_ref_count, t_alt_count, n_ref_count, n_alt_count, Variant_Classification" << endl;
             exit(1);
         }
         
+        bool load_caller_column = (header_index_hash.find("Caller") != header_index_hash.end());
         while(my_vf.get_next(line))
         {
             vector<string> variant_items;
@@ -836,7 +837,11 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
             int n_ref_count = atoi(variant_items[header_index_hash["n_ref_count"]].c_str());
             int n_alt_count = atoi(variant_items[header_index_hash["n_alt_count"]].c_str());
             string effect = variant_items[header_index_hash["Variant_Classification"]];
-            string caller = variant_items[header_index_hash["Caller"]];
+            string caller = "";
+            if(load_caller_column)
+            {
+                caller = variant_items[header_index_hash["Caller"]];
+            }
             if(effect.empty())
             {
                 if(header_index_hash.find("ONCOTATOR_VARIANT_CLASSIFICATION") != header_index_hash.end() && !(variant_items[header_index_hash["ONCOTATOR_VARIANT_CLASSIFICATION"]].empty()) )
