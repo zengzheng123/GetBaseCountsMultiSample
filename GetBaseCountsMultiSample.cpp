@@ -33,7 +33,7 @@ using namespace std;
 using namespace BamTools;
 
 
-const string VERSION = "GetBaseCountsMultiSample 1.2.1";
+const string VERSION = "GetBaseCountsMultiSample 1.2.2";
 
 string input_fasta_file;
 map<string, string> input_bam_files;
@@ -502,6 +502,7 @@ public:
         end_pos = 0;
         snp = false;
         dnp = false;
+        dnp_len = 0;
         insertion = false;
         deletion = false;
         t_ref_count = 0;
@@ -516,7 +517,7 @@ public:
 
         }
     }
-    VariantEntry(string _chrom, int _pos,  string _ref, string _alt, bool _snp, bool _dnp, bool _insertion, bool _deletion)
+    VariantEntry(string _chrom, int _pos,  string _ref, string _alt, bool _snp, bool _dnp, int _dnp_len, bool _insertion, bool _deletion)
     {
         chrom = _chrom;
         pos = _pos;
@@ -524,6 +525,7 @@ public:
         alt = _alt;
         snp = _snp;
         dnp = _dnp;
+        dnp_len = _dnp_len;
         insertion = _insertion;
         deletion = _deletion;
 
@@ -541,7 +543,7 @@ public:
     }
 
 
-    VariantEntry(string _chrom, int _pos,  string _ref, string _alt, bool _snp, bool _dnp, bool _insertion, bool _deletion, string _tumor_sample, string _normal_sample)
+    VariantEntry(string _chrom, int _pos,  string _ref, string _alt, bool _snp, bool _dnp, int _dnp_len, bool _insertion, bool _deletion, string _tumor_sample, string _normal_sample)
     {
         chrom = _chrom;
         pos = _pos;
@@ -549,6 +551,7 @@ public:
         alt = _alt;
         snp = _snp;
         dnp = _dnp;
+        dnp_len = _dnp_len;
         insertion = _insertion;
         deletion = _deletion;
         tumor_sample = _tumor_sample;
@@ -567,7 +570,7 @@ public:
         }
     }
 
-    VariantEntry(string _chrom, int _pos, int _end_pos, string _ref, string _alt, bool _snp, bool _dnp, bool _insertion, bool _deletion, string _tumor_sample, string _normal_sample, string _gene, string _effect, int _t_ref_count, int _t_alt_count, int _n_ref_count, int _n_alt_count, int _maf_pos, int _maf_end_pos, string _maf_ref, string _maf_alt, string _caller)
+    VariantEntry(string _chrom, int _pos, int _end_pos, string _ref, string _alt, bool _snp, bool _dnp, int _dnp_len, bool _insertion, bool _deletion, string _tumor_sample, string _normal_sample, string _gene, string _effect, int _t_ref_count, int _t_alt_count, int _n_ref_count, int _n_alt_count, int _maf_pos, int _maf_end_pos, string _maf_ref, string _maf_alt, string _caller)
     {
         chrom = _chrom;
         pos = _pos;
@@ -576,6 +579,7 @@ public:
         alt = _alt;
         snp = _snp;
         dnp = _dnp;
+        dnp_len = _dnp_len;
         insertion = _insertion;
         deletion = _deletion;
         tumor_sample = _tumor_sample;
@@ -623,6 +627,7 @@ public:
     string alt;
     bool snp;
     bool dnp;
+    int dnp_len;
     bool insertion;
     bool deletion;
     string tumor_sample;
@@ -744,7 +749,8 @@ void loadVariantFileVCF(vector<string>& input_file_names, vector<VariantEntry *>
             string alt = variant_items[4];
 
             bool snp = (alt.length() == ref.length() && alt.length() == 1);
-            bool dnp = (alt.length() == ref.length() && alt.length() == 2);
+            bool dnp = (alt.length() == ref.length());
+            int dnp_len = dnp ? ((int)ref.length()) : 0;
             bool insertion = (alt.length() > ref.length());
             bool deletion = (alt.length() < ref.length());
             if(!snp && !dnp && !insertion && !deletion)
@@ -752,7 +758,7 @@ void loadVariantFileVCF(vector<string>& input_file_names, vector<VariantEntry *>
                 cerr << "[WARNING] Unrecognized variants type in input variant file, you won't get any counts for it" << endl;
                 cerr << "[WARNING] " << line << endl;
             }
-            VariantEntry *new_variant_ptr = new VariantEntry(chrom, pos, ref, alt, snp, dnp, insertion, deletion);
+            VariantEntry *new_variant_ptr = new VariantEntry(chrom, pos, ref, alt, snp, dnp, dnp_len, insertion, deletion);
             variant_vec.push_back(new_variant_ptr);
             variant_count ++;
         }
@@ -890,7 +896,8 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
                 alt = prev_ref;
             }
             bool snp = (alt.length() == ref.length() && alt.length() == 1);
-            bool dnp = (alt.length() == ref.length() && alt.length() == 2);
+            bool dnp = (alt.length() == ref.length());
+            int dnp_len = dnp ? ((int)ref.length()) : 0;
             bool insertion = (alt.length() > ref.length());
             bool deletion = (alt.length() < ref.length());
             if(!snp && !dnp && !insertion && !deletion)
@@ -898,7 +905,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
                 cerr << "[WARNING] Unrecognized variants type in input variant file, you won't get any counts for it" << endl;
                 cerr << "[WARNING] " << line << endl;
             }
-            VariantEntry *new_variant_ptr = new VariantEntry(chrom, pos, end_pos, ref, alt, snp, dnp, insertion, deletion, tumor_sample, normal_sample, gene, effect, t_ref_count, t_alt_count, n_ref_count, n_alt_count, maf_pos, maf_end_pos, maf_ref, maf_alt, caller);
+            VariantEntry *new_variant_ptr = new VariantEntry(chrom, pos, end_pos, ref, alt, snp, dnp, dnp_len, insertion, deletion, tumor_sample, normal_sample, gene, effect, t_ref_count, t_alt_count, n_ref_count, n_alt_count, maf_pos, maf_end_pos, maf_ref, maf_alt, caller);
             variant_vec.push_back(new_variant_ptr);
             variant_count ++;
         }
@@ -1321,7 +1328,7 @@ void baseCountDNP(VariantEntry& my_variant_entry, vector<BamAlignment>& bam_vec,
     for(size_t bam_index = start_bam_index; bam_index < bam_vec.size(); bam_index++)
     {
         BamAlignment &my_bam_alignment = bam_vec[bam_index];
-        if(my_bam_alignment.Position > my_variant_entry.pos + 1)  // my_bam_alignment.Position is 0-indexed
+        if(my_bam_alignment.Position > my_variant_entry.pos + my_variant_entry.dnp_len - 1)  // my_bam_alignment.Position is 0-indexed
             break;
         if(my_bam_alignment.GetEndPosition(false, true) < my_variant_entry.pos)  // GetEndPosition(bool padding, bool closed_interval)
             continue;
@@ -1349,7 +1356,7 @@ void baseCountDNP(VariantEntry& my_variant_entry, vector<BamAlignment>& bam_vec,
                 {
                     if(ref_pos + op.Length > my_variant_entry.pos) // target vcf postion fall in this cigar region
                     {
-                        if(ref_pos <= my_variant_entry.pos && ref_pos + op.Length > my_variant_entry.pos + 1)
+                        if(ref_pos <= my_variant_entry.pos && ref_pos + op.Length > my_variant_entry.pos + my_variant_entry.dnp_len - 1)
                         {
                             fully_covered = true;
                             variant_pos = my_variant_entry.pos - ref_pos + read_pos; //calculate the index of target vcf position in the read
@@ -1389,12 +1396,15 @@ void baseCountDNP(VariantEntry& my_variant_entry, vector<BamAlignment>& bam_vec,
             cur_alt = "U";
             cur_bq = base_quality_threshold; // ignore base quality threshold
         }
-        else // alt or ref
+        else // fully cover the dnp
         {
-            cur_alt = my_bam_alignment.QueryBases.substr(variant_pos, 2);
-            cur_bq = min(my_bam_alignment.Qualities[variant_pos], my_bam_alignment.Qualities[variant_pos + 1]);
+            cur_alt = my_bam_alignment.QueryBases.substr(variant_pos, my_variant_entry.dnp_len);
+            cur_bq = my_bam_alignment.Qualities[variant_pos];
+            for(int base_idx = 1; base_idx < my_variant_entry.dnp_len; base_idx ++)
+            {
+                cur_bq = min(cur_bq, (int)my_bam_alignment.Qualities[variant_pos + base_idx]);
+            }
         }
-
         if(cur_bq >= base_quality_threshold) // possible base values for snp: A T G C a t g c U u
         {
             int end_no = my_bam_alignment.IsFirstMate() ? 1 : 2;
