@@ -749,7 +749,7 @@ void loadVariantFileVCF(vector<string>& input_file_names, vector<VariantEntry *>
             string alt = variant_items[4];
 
             bool snp = (alt.length() == ref.length() && alt.length() == 1);
-            bool dnp = (alt.length() == ref.length());
+            bool dnp = (alt.length() == ref.length() && alt.length() > 1);
             int dnp_len = dnp ? ((int)ref.length()) : 0;
             bool insertion = (alt.length() > ref.length());
             bool deletion = (alt.length() < ref.length());
@@ -896,7 +896,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
                 alt = prev_ref;
             }
             bool snp = (alt.length() == ref.length() && alt.length() == 1);
-            bool dnp = (alt.length() == ref.length());
+            bool dnp = (alt.length() == ref.length() && alt.length() > 1);
             int dnp_len = dnp ? ((int)ref.length()) : 0;
             bool insertion = (alt.length() > ref.length());
             bool deletion = (alt.length() < ref.length());
