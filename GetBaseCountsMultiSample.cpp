@@ -60,8 +60,8 @@ bool input_variant_is_maf = false;
 bool input_variant_is_vcf = false;
 bool output_maf = false;
 const size_t BIN_SIZE = 16*1024;
-const float FRAGMENT_REF_WEIGHT = 0.5;
-const float FRAGMENT_ALT_WEIGHT = 0.5;
+const float FRAGMENT_REF_WEIGHT = 0;
+const float FRAGMENT_ALT_WEIGHT = 0;
 enum Count_Type {DP, RD, AD, DPP, RDP, ADP, DPF, RDF, ADF, NUM_COUNT_TYPE}; // NUM_COUNT_TYPE will have the size of Count_Type
 bool has_chr;
 int max_warning_per_type = 3;
