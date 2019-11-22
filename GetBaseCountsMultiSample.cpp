@@ -33,7 +33,7 @@ using namespace std;
 using namespace BamTools;
 
 
-const string VERSION = "GetBaseCountsMultiSample 1.2.2";
+const string VERSION = "GetBaseCountsMultiSample 1.2.3";
 
 string input_fasta_file;
 map<string, string> input_bam_files;
@@ -877,7 +877,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
                 ref = prev_ref;
                 alt = prev_ref + alt;
             }
-            if(alt == "-")  // convert maf convention deletion to vcf convention         G - => CG C
+            else if(alt == "-")  // convert maf convention deletion to vcf convention         G - => CG C
             {
                 if(reference_sequence.find(chrom) == reference_sequence.end())
                 {
@@ -890,10 +890,26 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
                     exit(1);
                 }
                 pos --;
-                end_pos --;
                 char prev_ref = reference_sequence[chrom][pos];  // get allele before the current position
                 ref = prev_ref + ref;
                 alt = prev_ref;
+            }
+            else if(alt.length() != ref.length() && ref[0] != alt[0]) // convert complex indel to vcf convention
+            {
+                if(reference_sequence.find(chrom) == reference_sequence.end())
+                {
+                    cerr << "[ERROR] Could not find variant chrom name in reference sequence: " << chrom << endl;
+                    exit(1);
+                }
+                if(reference_sequence[chrom].length() <= pos)
+                {
+                    cerr << "[ERROR] Variant position is out of the reference genome range: " << chrom << ":" << pos << endl;
+                    exit(1);
+                }
+                pos --;
+                char prev_ref = reference_sequence[chrom][pos];  // get allele before the current position
+                ref = prev_ref + ref;
+                alt = prev_ref + alt;
             }
             bool snp = (alt.length() == ref.length() && alt.length() == 1);
             bool dnp = (alt.length() == ref.length() && alt.length() > 1);
