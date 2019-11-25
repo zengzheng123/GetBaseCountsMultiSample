@@ -894,7 +894,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
                 ref = prev_ref + ref;
                 alt = prev_ref;
             }
-            else if(alt.length() != ref.length() && ref[0] != alt[0]) // convert complex indel to vcf convention
+            else if(alt.length() != ref.length()) // convert complex indel to vcf convention
             {
                 if(reference_sequence.find(chrom) == reference_sequence.end())
                 {
