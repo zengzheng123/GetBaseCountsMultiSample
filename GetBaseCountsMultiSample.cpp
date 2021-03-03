@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <math.h>
+#include <limits.h>
 #include "api/BamReader.h"
 #include "omp.h"
 
@@ -33,7 +34,7 @@ using namespace std;
 using namespace BamTools;
 
 
-const string VERSION = "GetBaseCountsMultiSample 1.2.3";
+const string VERSION = "GetBaseCountsMultiSample 1.2.4";
 
 string input_fasta_file;
 map<string, string> input_bam_files;
@@ -50,7 +51,8 @@ int filter_improper_pair = 0;
 int filter_qc_failed = 0;
 int filter_indel = 0;
 int filter_non_primary = 0;
-int output_stranded_count = 1;
+int output_positive_count = 1;
+int output_negative_count = 0;
 int output_fragment_count = 0;
 int maximum_variant_block_size = 10000;
 int maximum_variant_block_distance = 100000;
@@ -68,6 +70,7 @@ int max_warning_per_type = 3;
 int warning_overlapping_multimapped = 0;
 string maf_output_center = "msk";
 string maf_output_genome_build = "hg19";
+bool generic_counting = false;
 
 bool isNumber(const string& s)  //check if a string(chrom name) is number
 {
@@ -150,6 +153,7 @@ void printUsage(string msg = "")
     cout << "\t--filter_indel          [0, 1]                          Whether to filter reads that have indels. 0=off, 1=on. Default 0" << endl;
     cout << "\t--filter_non_primary    [0, 1]                          Whether to filter reads that are marked as non primary alignment. Default 0" << endl;
     cout << "\t--positive_count        [0, 1]                          Whether to output positive strand read counts DPP/RDP/ADP. 0=off, 1=on. Default 1" << endl;
+    cout << "\t--negative_count        [0, 1]                          Whether to output negative strand read counts DPN/RDN/ADN. 0=off, 1=on. Default 0" << endl;
     cout << "\t--fragment_count        [0, 1]                          Whether to output fragment read counts DPF/RDF/ADF. 0=off, 1=on. Default 0" << endl;
     cout << "\t--suppress_warning      <int>                           Only print a limit number of warnings for each type. Default " << max_warning_per_type << endl;
     cout << "\t--help                                                  Print command line usage" << endl;
@@ -157,6 +161,7 @@ void printUsage(string msg = "")
     cout << "[ADVANCED ARGUMENTS, CHANGING THESE ARGUMENTS WILL SIGNIFICANTLY AFFECT MEMORY USAGE AND RUNNING TIME. USE WITH CAUTION]" << endl;
     cout << "\t--max_block_size        <int>                           The maximum size of variant chunks that can be processed at once per thread. Default 10,000" << endl;
     cout << "\t--max_block_dist        <int>                           The longest spanning region (bp) of variant chunks that can be processed at once per thread. Default 100,000" << endl;
+    cout << "\t--generic_counting                                      Use the newly implemented generic counting algorithm. Works better for complex variants. You may get different allele count result from the default counting algorithm" << endl;
     cout << endl;
     if(!msg.empty())
         cerr << msg << endl;
@@ -181,10 +186,12 @@ static struct option long_options[] =
     {"filter_indel",            required_argument,      0,     'i'},
     {"filter_non_primary",      required_argument,      0,     'n'},
     {"positive_count",          required_argument,      0,     'P'},
+    {"negative_count",          required_argument,      0,     'N'},
     {"fragment_count",          required_argument,      0,     'F'},
     {"suppress_warning",        required_argument,      0,     'w'},
     {"max_block_size",          required_argument,      0,     'M'},
     {"max_block_dist",          required_argument,      0,     'm'},
+    {"generic_counting",        no_argument,            0,     'g'},
     {"help",                    no_argument,            0,     'h'},
     {0, 0, 0, 0}
 };
@@ -198,7 +205,7 @@ void parseOption(int argc, const char* argv[])
     int option_index = 0;
     do
     {
-        next_option = getopt_long(argc, const_cast<char**>(argv), "f:b:v:V:o:t:OQ:q:d:p:l:i:n:P:F:w:M:m:h", long_options, &option_index);
+        next_option = getopt_long(argc, const_cast<char**>(argv), "f:b:v:V:o:t:OQ:q:d:p:l:i:n:P:N:F:w:M:m:h", long_options, &option_index);
         switch(next_option)
         {
             case 'f':
@@ -271,9 +278,15 @@ void parseOption(int argc, const char* argv[])
                 break;
             case 'P':
                 if(isNumber(optarg))
-                    output_stranded_count = atoi(optarg);
+                    output_positive_count = atoi(optarg);
                 else
                     printUsage("[ERROR] Invalid value for --positive_count");
+                break;
+            case 'N':
+                if(isNumber(optarg))
+                    output_negative_count = atoi(optarg);
+                else
+                    printUsage("[ERROR] Invalid value for --negative_count");
                 break;
             case 'F':
                 if(isNumber(optarg))
@@ -298,6 +311,9 @@ void parseOption(int argc, const char* argv[])
                     maximum_variant_block_distance = atoi(optarg);
                 else
                     printUsage("[ERROR] Invalid value for --max_block_dist");
+                break;
+            case 'g':
+                generic_counting = true;
                 break;
             case 'h':
                 printUsage();
@@ -332,8 +348,10 @@ void parseOption(int argc, const char* argv[])
         printUsage("[ERROR] --filter_indel should be 0 or 1");
     if(filter_non_primary != 0 && filter_non_primary != 1)
         printUsage("[ERROR] --filter_non_primary should be 0 or 1");
-    if(output_stranded_count != 0 && output_stranded_count != 1)
+    if(output_positive_count != 0 && output_positive_count != 1)
         printUsage("[ERROR] --positive_count should be 0 or 1");
+    if(output_negative_count != 0 && output_negative_count != 1)
+        printUsage("[ERROR] --negative_count should be 0 or 1");
     if(output_fragment_count != 0 && output_fragment_count != 1)
         printUsage("[ERROR] --fragment_count should be 0 or 1");
     if(input_variant_is_maf && input_variant_is_vcf)
@@ -514,13 +532,13 @@ public:
         for (int i = 0; i < input_bam_files.size(); i++)
         {
             base_count[i] = new float[NUM_COUNT_TYPE](); // initialized to 0
-
         }
     }
-    VariantEntry(string _chrom, int _pos,  string _ref, string _alt, bool _snp, bool _dnp, int _dnp_len, bool _insertion, bool _deletion)
+    VariantEntry(string _chrom, int _pos, int _end_pos, string _ref, string _alt, bool _snp, bool _dnp, int _dnp_len, bool _insertion, bool _deletion)
     {
         chrom = _chrom;
         pos = _pos;
+        end_pos = _end_pos;
         ref = _ref;
         alt = _alt;
         snp = _snp;
@@ -528,8 +546,6 @@ public:
         dnp_len = _dnp_len;
         insertion = _insertion;
         deletion = _deletion;
-
-        end_pos = 0;
         t_ref_count = 0;
         t_alt_count = 0;
         n_ref_count = 0;
@@ -543,10 +559,11 @@ public:
     }
 
 
-    VariantEntry(string _chrom, int _pos,  string _ref, string _alt, bool _snp, bool _dnp, int _dnp_len, bool _insertion, bool _deletion, string _tumor_sample, string _normal_sample)
+    VariantEntry(string _chrom, int _pos,  int _end_pos, string _ref, string _alt, bool _snp, bool _dnp, int _dnp_len, bool _insertion, bool _deletion, string _tumor_sample, string _normal_sample)
     {
         chrom = _chrom;
         pos = _pos;
+        end_pos = _end_pos;
         ref = _ref;
         alt = _alt;
         snp = _snp;
@@ -556,8 +573,6 @@ public:
         deletion = _deletion;
         tumor_sample = _tumor_sample;
         normal_sample = _normal_sample;
-
-        end_pos = 0;
         t_ref_count = 0;
         t_alt_count = 0;
         n_ref_count = 0;
@@ -747,6 +762,7 @@ void loadVariantFileVCF(vector<string>& input_file_names, vector<VariantEntry *>
             int pos = atoi(variant_items[1].c_str()) - 1; //convert to 0-indexed, to be consistent with bam entry
             string ref = variant_items[3];
             string alt = variant_items[4];
+            int end_pos = pos + (int)ref.length() - 1;
 
             bool snp = (alt.length() == ref.length() && alt.length() == 1);
             bool dnp = (alt.length() == ref.length() && alt.length() > 1);
@@ -758,7 +774,7 @@ void loadVariantFileVCF(vector<string>& input_file_names, vector<VariantEntry *>
                 cerr << "[WARNING] Unrecognized variants type in input variant file, you won't get any counts for it" << endl;
                 cerr << "[WARNING] " << line << endl;
             }
-            VariantEntry *new_variant_ptr = new VariantEntry(chrom, pos, ref, alt, snp, dnp, dnp_len, insertion, deletion);
+            VariantEntry *new_variant_ptr = new VariantEntry(chrom, pos, end_pos, ref, alt, snp, dnp, dnp_len, insertion, deletion);
             variant_vec.push_back(new_variant_ptr);
             variant_count ++;
         }
@@ -819,13 +835,13 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
             int pos = atoi(variant_items[header_index_hash["Start_Position"]].c_str()) - 1; //convert to 0-indexed, to be consistent with bam entry
             int end_pos = atoi(variant_items[header_index_hash["End_Position"]].c_str()) - 1;
             string ref = variant_items[header_index_hash["Reference_Allele"]];
-            string alt = variant_items[header_index_hash["Tumor_Seq_Allele2"]];
+            string alt = variant_items[header_index_hash["Tumor_Seq_Allele1"]];
             int maf_pos = pos;
             int maf_end_pos = end_pos;
             string maf_ref = ref;
             string maf_alt = alt;
-            if(alt.empty())
-                alt = variant_items[header_index_hash["Tumor_Seq_Allele1"]];
+            if(alt.empty() || alt == ref)
+                alt = variant_items[header_index_hash["Tumor_Seq_Allele2"]];
             if(alt.empty())
             {
                 cerr << "Could not find alt allele for variant: " << chrom << "\t" << pos << endl;
@@ -876,6 +892,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
                 char prev_ref = reference_sequence[chrom][pos]; // get allele before the current position
                 ref = prev_ref;
                 alt = prev_ref + alt;
+                end_pos --;
             }
             else if(alt == "-")  // convert maf convention deletion to vcf convention         G - => CG C
             {
@@ -1103,8 +1120,10 @@ void printCountsFillout(vector<VariantEntry *>& variant_vec) // print counts for
             if(counts[DP] > 0)
                 vf_count = counts[AD] / counts[DP];
             output_fs << "\t" << "DP=" << counts[DP]  << ";RD=" << counts[RD] << ";AD=" << counts[AD] << ";VF=" << vf_count;
-            if(output_stranded_count)
+            if(output_positive_count)
                 output_fs << ";DPP=" << counts[DPP]  << ";RDP=" << counts[RDP] << ";ADP=" << counts[ADP];
+            if(output_negative_count)
+                output_fs << ";DPN=" << (counts[DP] - counts[DPP])  << ";RDN=" << (counts[RD] - counts[RDP]) << ";ADN=" << (counts[AD] - counts[ADP]);
             if(output_fragment_count)
                 output_fs << ";DPF=" << counts[DPF]  << ";RDF=" << counts[RDF] << ";ADF=" << counts[ADF];
         }
@@ -1123,8 +1142,10 @@ void printCountsMaf(vector<VariantEntry *>& variant_vec) // print counts for tcg
     }
     cout << "[INFO] Writing results to " << output_file << endl;
     output_fs << "Hugo_Symbol\tEntrez_Gene_Id\tCenter\tNCBI_Build\tChromosome\tStart_Position\tEnd_Position\tStrand\tVariant_Classification\tVariant_Type\tReference_Allele\tTumor_Seq_Allele1\tTumor_Seq_Allele2\tdbSNP_RS\tdbSNP_Val_Status\tTumor_Sample_Barcode\tMatched_Norm_Sample_Barcode\tMatch_Norm_Seq_Allele1\tMatch_Norm_Seq_Allele2\tTumor_Validation_Allele1\tTumor_Validation_Allele2\tMatch_Norm_Validation_Allele1\tMatch_Norm_Validation_Allele2\tVerification_Status\tValidation_Status\tMutation_Status\tSequencing_Phase\tSequence_Source\tValidation_Method\tScore\tBAM_File\tSequencer\tt_ref_count\tt_alt_count\tn_ref_count\tn_alt_count\tCaller\tt_total_count\tt_variant_frequency";
-    if(output_stranded_count)
+    if(output_positive_count)
         output_fs << "\tt_total_count_forward\tt_ref_count_forward\tt_alt_count_forward";
+    if(output_negative_count)
+        output_fs << "\tt_total_count_reverse\tt_ref_count_reverse\tt_alt_count_reverse";
     if(output_fragment_count)
         output_fs << "\tt_total_count_fragment\tt_ref_count_fragment\tt_alt_count_fragment";
     output_fs << endl;
@@ -1148,8 +1169,10 @@ void printCountsMaf(vector<VariantEntry *>& variant_vec) // print counts for tcg
             if(counts[DP] > 0)
                 vf_count = counts[AD] / counts[DP];
             output_fs << variant_vec[i]->gene << "\t" << "" << "\t" << maf_output_center << "\t" << maf_output_genome_build << "\t" << variant_vec[i]->chrom << "\t" << (variant_vec[i]->maf_pos + 1) << "\t" << (variant_vec[i]->maf_end_pos + 1) << "\t" << "+" << "\t" << variant_vec[i]->effect << "\t" << variant_type << "\t" << variant_vec[i]->maf_ref << "\t" << variant_vec[i]->maf_alt << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << output_sample_order[j] << "\t" << "Normal" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "UNPAIRED" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << counts[RD] << "\t" << counts[AD] << "\t" << "" << "\t" << "" << "\t" << variant_vec[i]->caller << "\t" << counts[DP] << "\t" << vf_count;
-            if(output_stranded_count)
+            if(output_positive_count)
                 output_fs << "\t" << counts[DPP]  << "\t" << counts[RDP] << "\t" << counts[ADP];
+            if(output_negative_count)
+                output_fs << "\t" << (counts[DP] - counts[DPP])  << "\t" << (counts[RD] - counts[RDP]) << "\t" << (counts[AD] - counts[ADP]);
             if(output_fragment_count)
                 output_fs << "\t" << counts[DPF]  << "\t" << counts[RDF] << "\t" << counts[ADF];
             output_fs << endl;
@@ -1775,9 +1798,196 @@ void baseCountIndelDMP(VariantEntry& my_variant_entry, vector<BamAlignment>& bam
 }
 
 
-// to be implemented
-void baseCountIndelBIC(VariantEntry& my_variant_entry, vector<BamAlignment>& bam_vec, size_t& start_bam_index, string sample_name)
-{}
+// a new generic allele counting function for all types of variants
+void baseCountGENERIC(VariantEntry& my_variant_entry, vector<BamAlignment>& bam_vec, size_t& start_bam_index, string sample_name, map<string, string>& reference_sequence)
+{
+    bool start_bam_index_set = false;
+    map<string, map<int, int> > DPF_MAP;
+    map<string, map<int, int> > RDF_MAP;
+    map<string, map<int, int> > ADF_MAP;
+    for(size_t bam_index = start_bam_index; bam_index < bam_vec.size(); bam_index++)
+    {
+        BamAlignment &my_bam_alignment = bam_vec[bam_index];
+        if(my_bam_alignment.Position > my_variant_entry.end_pos)  // my_bam_alignment.Position is 0-indexed
+            break;
+        if(my_bam_alignment.GetEndPosition(false, true) < my_variant_entry.pos)  // GetEndPosition(bool padding, bool closed_interval)
+            continue;
+        // any alignment that overlap with my_variant_entry.pos to my_variant_entry.end_pos will pass through here
+        if(!start_bam_index_set) // save roll back point
+        {
+            start_bam_index = bam_index;
+            start_bam_index_set = true;
+        }
+        string alignment_allele = "";
+        int cur_bq = INT_MAX;   // this would also be the base quality if there is a deletion in the alignment that covers the entire variant region
+        bool partially_cover = false;
+        if(my_bam_alignment.Position > my_variant_entry.pos || my_bam_alignment.GetEndPosition(false, true) < my_variant_entry.end_pos)
+            partially_cover = true;
+        
+        {
+            int ref_pos = my_bam_alignment.Position; // the position on the reference sequence for the next base to be processed
+            int read_pos = 0; // the position on the read for the next base to be processed
+            vector<CigarOp>::const_iterator cigarIter = my_bam_alignment.CigarData.begin();
+            bool additional_insertion = false;
+            while(cigarIter != my_bam_alignment.CigarData.end() && (ref_pos <= my_variant_entry.end_pos || additional_insertion))        // parse cigar string
+            {
+                const CigarOp& op = (*cigarIter);
+                switch(op.Type)
+                {
+                    case 'M':
+                    {
+                        if(ref_pos + op.Length - 1 >= my_variant_entry.pos)
+                        {
+                            int start_idx = read_pos + max(my_variant_entry.pos, ref_pos) - ref_pos;
+                            int str_len = min((int)op.Length, min(my_variant_entry.end_pos, ref_pos + (int)op.Length - 1) + 1 - max(my_variant_entry.pos, ref_pos));
+                            alignment_allele += my_bam_alignment.QueryBases.substr(start_idx,  str_len);
+                            for(int bq_index = 0; bq_index < str_len; bq_index ++)
+                                cur_bq = min(cur_bq, (int)my_bam_alignment.Qualities[start_idx + bq_index]);  // get the minimum base quality of all the related bases
+                        }
+                        ref_pos += op.Length;
+                        read_pos += op.Length;
+                        if(ref_pos == my_variant_entry.end_pos + 1) // allow adding additional insertion if M cigar falls at the variant end position
+                        {
+                            vector<CigarOp>::const_iterator cigarIter_next = cigarIter + 1;
+                            if(cigarIter_next != my_bam_alignment.CigarData.end() && cigarIter_next->Type == 'I')
+                                additional_insertion = true;
+                        }
+                        break;
+                    }
+                    case 'I':
+                    {
+                        if(ref_pos >= my_variant_entry.pos)
+                        {
+                            alignment_allele += my_bam_alignment.QueryBases.substr(read_pos, op.Length);
+                            for(int bq_index = 0; bq_index < op.Length; bq_index ++)
+                                cur_bq = min(cur_bq, (int)my_bam_alignment.Qualities[read_pos + bq_index]);  // get the minimum base quality of all the related bases
+                        }
+                        read_pos += op.Length;
+                        additional_insertion = false;
+                        break;
+                    }
+                    case 'S' :
+                    {
+                        read_pos += op.Length;
+                        break;
+                    }
+                    case 'D': case 'N':
+                    {
+                        if(ref_pos + op.Length - 1 > my_variant_entry.end_pos)  //unmatched deletion
+                            alignment_allele = "U";
+                        ref_pos += op.Length;
+                        break;
+                    }
+                    case 'H':
+                        break;
+                    default:
+                        break;
+                }
+                cigarIter++;
+            }
+        }
+        if(cur_bq >= base_quality_threshold)
+        {
+            int end_no = my_bam_alignment.IsFirstMate() ? 1 : 2;
+            // count total read depth
+            my_variant_entry.base_count[ bam_index_map[sample_name] ][DP] ++;
+            if(!(my_bam_alignment.IsReverseStrand()))
+                my_variant_entry.base_count[ bam_index_map[sample_name ]][DPP] ++;
+            if(DPF_MAP.find(my_bam_alignment.Name) == DPF_MAP.end())
+            {
+                map<int, int> new_end_count_map;
+                DPF_MAP.insert(make_pair(my_bam_alignment.Name, new_end_count_map));
+            }
+            if(DPF_MAP[my_bam_alignment.Name].find(end_no) == DPF_MAP[my_bam_alignment.Name].end())
+            {
+                DPF_MAP[my_bam_alignment.Name][end_no] = 0;
+            }
+            DPF_MAP[my_bam_alignment.Name][end_no]++;
+            
+            // count ref depth
+            if(partially_cover)
+            {
+            }
+            else if(alignment_allele == my_variant_entry.ref)
+            {
+                my_variant_entry.base_count[ bam_index_map[sample_name] ][RD] ++;
+                if(!(my_bam_alignment.IsReverseStrand()))
+                    my_variant_entry.base_count[ bam_index_map[sample_name] ][RDP] ++;
+                if(RDF_MAP.find(my_bam_alignment.Name) == RDF_MAP.end())
+                {
+                    map<int, int> new_end_count_map;
+                    RDF_MAP.insert(make_pair(my_bam_alignment.Name, new_end_count_map));
+                }
+                if(RDF_MAP[my_bam_alignment.Name].find(end_no) == RDF_MAP[my_bam_alignment.Name].end())
+                {
+                    RDF_MAP[my_bam_alignment.Name][end_no] = 0;
+                }
+                RDF_MAP[my_bam_alignment.Name][end_no]++;
+            } // count alt depth
+            else if(alignment_allele == my_variant_entry.alt)
+            {
+                my_variant_entry.base_count[ bam_index_map[sample_name] ][AD] ++;
+                if(!(my_bam_alignment.IsReverseStrand()))
+                    my_variant_entry.base_count[ bam_index_map[sample_name] ][ADP] ++;
+                if(ADF_MAP.find(my_bam_alignment.Name) == ADF_MAP.end())
+                {
+                    map<int, int> new_end_count_map;
+                    ADF_MAP.insert(make_pair(my_bam_alignment.Name, new_end_count_map));
+                }
+                if(ADF_MAP[my_bam_alignment.Name].find(end_no) == ADF_MAP[my_bam_alignment.Name].end())
+                {
+                    ADF_MAP[my_bam_alignment.Name][end_no] = 0;
+                }
+                ADF_MAP[my_bam_alignment.Name][end_no]++;
+            }
+        }
+    }
+    
+    // get fragment counts
+    if(output_fragment_count)
+    {
+        my_variant_entry.base_count[ bam_index_map[sample_name] ][DPF] = DPF_MAP.size();
+        for(map<string, map<int, int> >::iterator it_dpf = DPF_MAP.begin(); it_dpf != DPF_MAP.end(); it_dpf++)
+        {
+            bool overlap_multimap = false;
+            for(map<int, int>::iterator it_count = it_dpf->second.begin(); it_count != it_dpf->second.end(); it_count ++)
+            {
+                if(warning_overlapping_multimapped < max_warning_per_type && it_count->second > 1)
+                {
+                    cout << "Warning: fragment " << it_dpf->first << " has overlapping multiple mapped alignment at site: " << my_variant_entry.chrom << ":" << my_variant_entry.pos << endl;
+                    warning_overlapping_multimapped ++;
+                    overlap_multimap = true;
+                    break;
+                }
+            }
+            if(overlap_multimap)
+                continue;
+            if(RDF_MAP.find(it_dpf->first) != RDF_MAP.end())
+            {
+                if(ADF_MAP.find(it_dpf->first) != ADF_MAP.end()) // both ref and alt found in fragment
+                {
+                    my_variant_entry.base_count[ bam_index_map[sample_name] ][RDF] += FRAGMENT_REF_WEIGHT;
+                    my_variant_entry.base_count[ bam_index_map[sample_name] ][ADF] += FRAGMENT_ALT_WEIGHT;
+                }
+                else                                                     // only ref found in fragment
+                {
+                    my_variant_entry.base_count[ bam_index_map[sample_name] ][RDF] ++;
+                }
+            }
+            else
+            {
+                if(ADF_MAP.find(it_dpf->first) != ADF_MAP.end())  // only alt found in fragment
+                {
+                    my_variant_entry.base_count[ bam_index_map[sample_name] ][ADF] ++;
+                }
+                else  //no ref or alt
+                {
+                    
+                }
+            }
+        }
+    }
+}
 
 
 
@@ -1874,14 +2084,20 @@ void getBaseCounts()
                     size_t start_bam_index = 0;
                     for(size_t variant_index = variant_start_index; variant_index <= variant_end_index ; variant_index++)
                     {
-                        if(variant_vec[variant_index]->duplicate_variant_ptr != NULL) // there is a duplicate variant has been counted already
-                            continue;
-                        if(variant_vec[variant_index]->snp)
-                            baseCountSNP((*variant_vec[variant_index]), bam_vec, start_bam_index, it_bam->first);
-                        else if(variant_vec[variant_index]->dnp)
-                            baseCountDNP((*variant_vec[variant_index]), bam_vec, start_bam_index, it_bam->first);
-                        else if(variant_vec[variant_index]->insertion || variant_vec[variant_index]->deletion)
-                            baseCountIndelDMP((*variant_vec[variant_index]), bam_vec, start_bam_index, it_bam->first, reference_sequence);
+                        if(variant_vec[variant_index]->duplicate_variant_ptr == NULL) {// this is not a duplicate variant has been counted already
+                            if(generic_counting)
+                            {
+                                baseCountGENERIC((*variant_vec[variant_index]), bam_vec, start_bam_index, it_bam->first, reference_sequence);
+                            }
+                            else{
+                                if(variant_vec[variant_index]->snp)
+                                    baseCountSNP((*variant_vec[variant_index]), bam_vec, start_bam_index, it_bam->first);
+                                else if(variant_vec[variant_index]->dnp)
+                                    baseCountDNP((*variant_vec[variant_index]), bam_vec, start_bam_index, it_bam->first);
+                                else if(variant_vec[variant_index]->insertion || variant_vec[variant_index]->deletion)
+                                    baseCountIndelDMP((*variant_vec[variant_index]), bam_vec, start_bam_index, it_bam->first, reference_sequence);
+                            }
+                        }
                     }
                 }
             }
