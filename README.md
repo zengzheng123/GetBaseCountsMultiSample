@@ -39,6 +39,7 @@ Run "make" in the program directory to compile
 
 --max_block_size        <int>           The maximum number of variant chunks that can be processed at once per thread. Default 10,000
 --max_block_dist        <int>           The longest spanning region (bp) of variant chunks that can be processed at once per thread. Default 100,000
+--generic_counting                      Use the newly implemented generic counting algorithm. Works better for complex variants. You may get different allele count result from the default counting algorithm
 ```
 
 ```
