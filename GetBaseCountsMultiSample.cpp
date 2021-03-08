@@ -62,8 +62,8 @@ bool input_variant_is_maf = false;
 bool input_variant_is_vcf = false;
 bool output_maf = false;
 const size_t BIN_SIZE = 16*1024;
-const float FRAGMENT_REF_WEIGHT = 0.5;
-const float FRAGMENT_ALT_WEIGHT = 0.5;
+const float FRAGMENT_REF_WEIGHT = 0;
+const float FRAGMENT_ALT_WEIGHT = 0;
 enum Count_Type {DP, RD, AD, DPP, RDP, ADP, DPF, RDF, ADF, NUM_COUNT_TYPE}; // NUM_COUNT_TYPE will have the size of Count_Type
 bool has_chr;
 int max_warning_per_type = 3;
@@ -835,7 +835,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
             int pos = atoi(variant_items[header_index_hash["Start_Position"]].c_str()) - 1; //convert to 0-indexed, to be consistent with bam entry
             int end_pos = atoi(variant_items[header_index_hash["End_Position"]].c_str()) - 1;
             string ref = variant_items[header_index_hash["Reference_Allele"]];
-            string alt = variant_items[header_index_hash["Tumor_Seq_Allele1"]];
+            string alt = variant_items[header_index_hash["Tumor_Seq_Allele2"]];
             int maf_pos = pos;
             int maf_end_pos = end_pos;
             string maf_ref = ref;
@@ -1168,7 +1168,7 @@ void printCountsMaf(vector<VariantEntry *>& variant_vec) // print counts for tcg
             float vf_count = 0.0;
             if(counts[DP] > 0)
                 vf_count = counts[AD] / counts[DP];
-            output_fs << variant_vec[i]->gene << "\t" << "" << "\t" << maf_output_center << "\t" << maf_output_genome_build << "\t" << variant_vec[i]->chrom << "\t" << (variant_vec[i]->maf_pos + 1) << "\t" << (variant_vec[i]->maf_end_pos + 1) << "\t" << "+" << "\t" << variant_vec[i]->effect << "\t" << variant_type << "\t" << variant_vec[i]->maf_ref << "\t" << variant_vec[i]->maf_alt << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << output_sample_order[j] << "\t" << "Normal" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "UNPAIRED" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << counts[RD] << "\t" << counts[AD] << "\t" << "" << "\t" << "" << "\t" << variant_vec[i]->caller << "\t" << counts[DP] << "\t" << vf_count;
+            output_fs << variant_vec[i]->gene << "\t" << "" << "\t" << maf_output_center << "\t" << maf_output_genome_build << "\t" << variant_vec[i]->chrom << "\t" << (variant_vec[i]->maf_pos + 1) << "\t" << (variant_vec[i]->maf_end_pos + 1) << "\t" << "+" << "\t" << variant_vec[i]->effect << "\t" << variant_type << "\t" << variant_vec[i]->maf_ref << "\t" << variant_vec[i]->maf_ref << "\t" << variant_vec[i]->maf_alt << "\t" << "" << "\t" << "" << "\t" << output_sample_order[j] << "\t" << "Normal" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "UNPAIRED" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << counts[RD] << "\t" << counts[AD] << "\t" << "" << "\t" << "" << "\t" << variant_vec[i]->caller << "\t" << counts[DP] << "\t" << vf_count;
             if(output_positive_count)
                 output_fs << "\t" << counts[DPP]  << "\t" << counts[RDP] << "\t" << counts[ADP];
             if(output_negative_count)
