@@ -62,8 +62,8 @@ bool input_variant_is_maf = false;
 bool input_variant_is_vcf = false;
 bool output_maf = false;
 const size_t BIN_SIZE = 16*1024;
-const float FRAGMENT_REF_WEIGHT = 0;
-const float FRAGMENT_ALT_WEIGHT = 0;
+float FRAGMENT_REF_WEIGHT = 0;
+float FRAGMENT_ALT_WEIGHT = 0;
 enum Count_Type {DP, RD, AD, DPP, RDP, ADP, DPF, RDF, ADF, NUM_COUNT_TYPE}; // NUM_COUNT_TYPE will have the size of Count_Type
 bool has_chr;
 int max_warning_per_type = 3;
@@ -226,6 +226,7 @@ void printUsage(string msg = "")
     cout << "\t--positive_count        [0, 1]                          Whether to output positive strand read counts DPP/RDP/ADP. 0=off, 1=on. Default 1" << endl;
     cout << "\t--negative_count        [0, 1]                          Whether to output negative strand read counts DPN/RDN/ADN. 0=off, 1=on. Default 0" << endl;
     cout << "\t--fragment_count        [0, 1]                          Whether to output fragment read counts DPF/RDF/ADF. 0=off, 1=on. Default 0" << endl;
+    cout << "\t--fragment_fractional_weight                            Whether to add a fractional depth (0.5) when there is disaggrement between strands on an ALT allele. Default 0" << endl;
     cout << "\t--suppress_warning      <int>                           Only print a limit number of warnings for each type. Default " << max_warning_per_type << endl;
     cout << "\t--help                                                  Print command line usage" << endl;
     cout << endl;
@@ -260,6 +261,7 @@ static struct option long_options[] =
     {"positive_count",          required_argument,      0,     'P'},
     {"negative_count",          required_argument,      0,     'N'},
     {"fragment_count",          required_argument,      0,     'F'},
+    {"fragment_fractional_weight",    no_argument,      0,     'W'},
     {"suppress_warning",        required_argument,      0,     'w'},
     {"max_block_size",          required_argument,      0,     'M'},
     {"max_block_dist",          required_argument,      0,     'm'},
@@ -277,7 +279,7 @@ void parseOption(int argc, const char* argv[])
     int option_index = 0;
     do
     {
-        next_option = getopt_long(argc, const_cast<char**>(argv), "f:b:B:v:V:o:t:OQ:q:d:p:l:i:n:P:N:F:w:M:m:h", long_options, &option_index);
+        next_option = getopt_long(argc, const_cast<char**>(argv), "f:b:B:v:V:o:t:OQ:q:d:p:l:i:n:P:N:F:W:w:M:m:h", long_options, &option_index);
         switch(next_option)
         {
             case 'f':
@@ -368,6 +370,9 @@ void parseOption(int argc, const char* argv[])
                     output_fragment_count = atoi(optarg);
                 else
                     printUsage("[ERROR] Invalid value for --fragment_count");
+                break;
+            case 'W':
+                FRAGMENT_REF_WEIGHT = FRAGMENT_ALT_WEIGHT = 0.5;
                 break;
             case 'w':
                 if(isNumber(optarg))
