@@ -915,13 +915,14 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
             int pos = atoi(variant_items[header_index_hash["Start_Position"]].c_str()) - 1; //convert to 0-indexed, to be consistent with bam entry
             int end_pos = atoi(variant_items[header_index_hash["End_Position"]].c_str()) - 1;
             string ref = variant_items[header_index_hash["Reference_Allele"]];
-            string alt = variant_items[header_index_hash["Tumor_Seq_Allele2"]];
+            string alt = variant_items[header_index_hash["Tumor_Seq_Allele1"]];
             int maf_pos = pos;
             int maf_end_pos = end_pos;
             string maf_ref = ref;
             string maf_alt = alt;
             if(alt.empty() || alt == ref)
                 alt = variant_items[header_index_hash["Tumor_Seq_Allele2"]];
+	        maf_alt = alt;
             if(alt.empty())
             {
                 cerr << "Could not find alt allele for variant: " << chrom << "\t" << pos << endl;
