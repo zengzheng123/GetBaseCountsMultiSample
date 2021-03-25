@@ -62,8 +62,8 @@ bool input_variant_is_maf = false;
 bool input_variant_is_vcf = false;
 bool output_maf = false;
 const size_t BIN_SIZE = 16*1024;
-const float FRAGMENT_REF_WEIGHT = 0.5;
-const float FRAGMENT_ALT_WEIGHT = 0.5;
+float FRAGMENT_REF_WEIGHT = 0;
+float FRAGMENT_ALT_WEIGHT = 0;
 enum Count_Type {DP, RD, AD, DPP, RDP, ADP, DPF, RDF, ADF, NUM_COUNT_TYPE}; // NUM_COUNT_TYPE will have the size of Count_Type
 bool has_chr;
 int max_warning_per_type = 3;
@@ -123,6 +123,76 @@ void addBamFile(string bam_string)  // check and add a bam file to input list
     output_sample_order.push_back(sample_name);
 }
 
+class BamFileofFile
+{
+public:
+    BamFileofFile(string input_bam_fof)
+    {
+        bam_fs.open(input_bam_fof.c_str());
+        if (!bam_fs)
+        {
+            cerr << "[ERROR] fail to open input bam file of file: " << input_bam_fof << endl;
+            exit(1);
+        }
+    }
+
+    ~BamFileofFile() {}
+
+    bool get_next(string &line)
+    {
+        if (!getline(bam_fs, line))
+            return false;
+        return true;
+    }
+
+    void close()
+    {
+        if (bam_fs)
+            bam_fs.close();
+    }
+
+    bool eof()
+    {
+        return bam_fs.eof();
+    }
+
+    ifstream bam_fs;
+};
+
+void addBamFilefromFile(string bam_fof)
+{
+    BamFileofFile my_bf(bam_fof);
+    string line;
+    while (my_bf.get_next(line))
+    {
+        if (line[0] == '#')
+            continue; // header
+        vector<string> bam_items;
+        split(line, '\t', bam_items, true);
+        if (bam_items.size() != 2)
+        {
+            cerr << "[ERROR] Incorrect format of entry in : " << line << " in " << bam_fof << ". Each row should be in the format \"SAMPLE_NAME\tBAM_FILE\"" << endl;
+            exit(1);
+        }
+        string sample_name = bam_items[0];
+        string bam_file_name = bam_items[1];
+        if (input_bam_files.find(sample_name) != input_bam_files.end())
+        {
+            cerr << "[ERROR] Multiple bam files specified for sample: " << sample_name << endl;
+            exit(1);
+        }
+        struct stat buffer;
+        if (stat(bam_file_name.c_str(), &buffer) != 0)
+        {
+            cerr << "[ERROR] Unable to access bam file:" << bam_file_name << endl;
+            exit(1);
+        }
+        input_bam_files.insert(make_pair(sample_name, bam_file_name));
+        output_sample_order.push_back(sample_name);
+    }
+    my_bf.close();
+}
+
 void addVariantFile(string variant_string)  // add a variant file to input list
 {
     input_variant_files.push_back(variant_string);
@@ -138,6 +208,7 @@ void printUsage(string msg = "")
     cout << "\t--fasta                 <string>                        Input reference sequence file" << endl;
     cout << "\t--bam                   <string>                        Input bam file, in the format of SAMPLE_NAME:BAM_FILE. This paramter need to be specified at least once" << endl;
     cout << "\t                                                        e.g: --bam s_EV_crc_007:Proj_4495.eta_indelRealigned_recal_s_EV_crc_007_M3.bam." << endl;
+    cout << "\t--bam_fof               <string>                        Input file of file with each row in the format of \"SAMPLE_NAME\tBAM_FILE\". This paramter is optional if --bam is specified at least once" << endl;
     cout << "\t--maf                   <string>                        Input variant file in TCGA maf format. --maf or --vcf need to be specified at least once. But --maf and --vcf are mutually exclusive" << endl;
     cout << "\t--vcf                   <string>                        Input variant file in vcf-like format(the first 5 columns are used). --maf or --vcf need to be specified at least once. But --maf and --vcf are mutually exclusive" << endl;
     cout << "\t--output                <string>                        Output file" << endl;
@@ -155,6 +226,7 @@ void printUsage(string msg = "")
     cout << "\t--positive_count        [0, 1]                          Whether to output positive strand read counts DPP/RDP/ADP. 0=off, 1=on. Default 1" << endl;
     cout << "\t--negative_count        [0, 1]                          Whether to output negative strand read counts DPN/RDN/ADN. 0=off, 1=on. Default 0" << endl;
     cout << "\t--fragment_count        [0, 1]                          Whether to output fragment read counts DPF/RDF/ADF. 0=off, 1=on. Default 0" << endl;
+    cout << "\t--fragment_fractional_weight                            Whether to add a fractional depth (0.5) when there is disaggrement between strands on an ALT allele. Default 0" << endl;
     cout << "\t--suppress_warning      <int>                           Only print a limit number of warnings for each type. Default " << max_warning_per_type << endl;
     cout << "\t--help                                                  Print command line usage" << endl;
     cout << endl;
@@ -173,6 +245,7 @@ static struct option long_options[] =
 {
     {"fasta",                   required_argument,      0,     'f'},
     {"bam",                     required_argument,      0,     'b'},
+    {"bam_fof",                 required_argument,      0,     'B'},
     {"maf",                     required_argument,      0,     'v'},
     {"vcf",                     required_argument,      0,     'V'},
     {"output",                  required_argument,      0,     'o'},
@@ -188,6 +261,7 @@ static struct option long_options[] =
     {"positive_count",          required_argument,      0,     'P'},
     {"negative_count",          required_argument,      0,     'N'},
     {"fragment_count",          required_argument,      0,     'F'},
+    {"fragment_fractional_weight",    no_argument,      0,     'W'},
     {"suppress_warning",        required_argument,      0,     'w'},
     {"max_block_size",          required_argument,      0,     'M'},
     {"max_block_dist",          required_argument,      0,     'm'},
@@ -205,7 +279,7 @@ void parseOption(int argc, const char* argv[])
     int option_index = 0;
     do
     {
-        next_option = getopt_long(argc, const_cast<char**>(argv), "f:b:v:V:o:t:OQ:q:d:p:l:i:n:P:N:F:w:M:m:h", long_options, &option_index);
+        next_option = getopt_long(argc, const_cast<char**>(argv), "f:b:B:v:V:o:t:OQ:q:d:p:l:i:n:P:N:F:W:w:M:m:h", long_options, &option_index);
         switch(next_option)
         {
             case 'f':
@@ -213,6 +287,9 @@ void parseOption(int argc, const char* argv[])
                 break;
             case 'b':
                 addBamFile(optarg);
+                break;
+            case 'B':
+                addBamFilefromFile(optarg);
                 break;
             case 'v':
                 addVariantFile(optarg);
@@ -293,6 +370,9 @@ void parseOption(int argc, const char* argv[])
                     output_fragment_count = atoi(optarg);
                 else
                     printUsage("[ERROR] Invalid value for --fragment_count");
+                break;
+            case 'W':
+                FRAGMENT_REF_WEIGHT = FRAGMENT_ALT_WEIGHT = 0.5;
                 break;
             case 'w':
                 if(isNumber(optarg))
@@ -842,6 +922,7 @@ void loadVariantFileMAF(vector<string>& input_file_names, vector<VariantEntry *>
             string maf_alt = alt;
             if(alt.empty() || alt == ref)
                 alt = variant_items[header_index_hash["Tumor_Seq_Allele2"]];
+	        maf_alt = alt;
             if(alt.empty())
             {
                 cerr << "Could not find alt allele for variant: " << chrom << "\t" << pos << endl;
@@ -1168,7 +1249,7 @@ void printCountsMaf(vector<VariantEntry *>& variant_vec) // print counts for tcg
             float vf_count = 0.0;
             if(counts[DP] > 0)
                 vf_count = counts[AD] / counts[DP];
-            output_fs << variant_vec[i]->gene << "\t" << "" << "\t" << maf_output_center << "\t" << maf_output_genome_build << "\t" << variant_vec[i]->chrom << "\t" << (variant_vec[i]->maf_pos + 1) << "\t" << (variant_vec[i]->maf_end_pos + 1) << "\t" << "+" << "\t" << variant_vec[i]->effect << "\t" << variant_type << "\t" << variant_vec[i]->maf_ref << "\t" << variant_vec[i]->maf_alt << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << output_sample_order[j] << "\t" << "Normal" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "UNPAIRED" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << counts[RD] << "\t" << counts[AD] << "\t" << "" << "\t" << "" << "\t" << variant_vec[i]->caller << "\t" << counts[DP] << "\t" << vf_count;
+            output_fs << variant_vec[i]->gene << "\t" << "" << "\t" << maf_output_center << "\t" << maf_output_genome_build << "\t" << variant_vec[i]->chrom << "\t" << (variant_vec[i]->maf_pos + 1) << "\t" << (variant_vec[i]->maf_end_pos + 1) << "\t" << "+" << "\t" << variant_vec[i]->effect << "\t" << variant_type << "\t" << variant_vec[i]->maf_ref << "\t" << variant_vec[i]->maf_ref << "\t" << variant_vec[i]->maf_alt << "\t" << "" << "\t" << "" << "\t" << output_sample_order[j] << "\t" << "Normal" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "UNPAIRED" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << "" << "\t" << counts[RD] << "\t" << counts[AD] << "\t" << "" << "\t" << "" << "\t" << variant_vec[i]->caller << "\t" << counts[DP] << "\t" << vf_count;
             if(output_positive_count)
                 output_fs << "\t" << counts[DPP]  << "\t" << counts[RDP] << "\t" << counts[ADP];
             if(output_negative_count)
