@@ -34,7 +34,7 @@ using namespace std;
 using namespace BamTools;
 
 
-const string VERSION = "GetBaseCountsMultiSample 1.2.4";
+const string VERSION = "GetBaseCountsMultiSample 1.2.5";
 
 string input_fasta_file;
 map<string, string> input_bam_files;
