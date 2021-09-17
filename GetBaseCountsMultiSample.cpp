@@ -1124,7 +1124,7 @@ void printCountsVcf(vector<VariantEntry *>& variant_vec) // print counts for vcf
         exit(1);
     }
     cout << "[INFO] Writing results to " << output_file << endl;
-    output_fs << fixed;
+    output_fs << setprecision(10);
     output_fs << "##fileformat=VCFv4.2" << endl;
     output_fs << "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Total depth\">" << endl;
     output_fs << "##FORMAT=<ID=RD,Number=1,Type=Integer,Description=\"Depth matching reference (REF) allele\">" << endl;
@@ -1179,7 +1179,7 @@ void printCountsFillout(vector<VariantEntry *>& variant_vec) // print counts for
         exit(1);
     }
     cout << "[INFO] Writing results to " << output_file << endl;
-    output_fs << fixed;
+    output_fs << setprecision(10);
     output_fs << "Sample\tNormalUsed\tChrom\tStart\tRef\tAlt\tVariantClass\tGene\tExon\tCall_Confidence\tComments\tTranscriptID\tcDNAchange\tAAchange\tdbSNP_ID\tCosmic_ID\t1000G_MAF\tFailureReason\tN_TotalDepth\tN_RefCount\tN_AltCount\tN_AltFreq\tT_TotalDepth\tT_RefCount\tT_AltCount\tT_AltFreq\tT_Ref+\tT_Ref-\tT_Alt+\tT_Alt-\tAll_N_Aggregate_AlleleDepth\tAll_N_Median_AlleleFreq\tT_freq/All_N_Freq\tOccurence_in_Normals";
     for(size_t i = 0; i < output_sample_order.size(); i++)
     {
@@ -1224,7 +1224,7 @@ void printCountsMaf(vector<VariantEntry *>& variant_vec) // print counts for tcg
         exit(1);
     }
     cout << "[INFO] Writing results to " << output_file << endl;
-    output_fs << fixed;
+    output_fs << setprecision(10);
     output_fs << "Hugo_Symbol\tEntrez_Gene_Id\tCenter\tNCBI_Build\tChromosome\tStart_Position\tEnd_Position\tStrand\tVariant_Classification\tVariant_Type\tReference_Allele\tTumor_Seq_Allele1\tTumor_Seq_Allele2\tdbSNP_RS\tdbSNP_Val_Status\tTumor_Sample_Barcode\tMatched_Norm_Sample_Barcode\tMatch_Norm_Seq_Allele1\tMatch_Norm_Seq_Allele2\tTumor_Validation_Allele1\tTumor_Validation_Allele2\tMatch_Norm_Validation_Allele1\tMatch_Norm_Validation_Allele2\tVerification_Status\tValidation_Status\tMutation_Status\tSequencing_Phase\tSequence_Source\tValidation_Method\tScore\tBAM_File\tSequencer\tt_ref_count\tt_alt_count\tn_ref_count\tn_alt_count\tCaller\tt_total_count\tt_variant_frequency";
     if(output_positive_count)
         output_fs << "\tt_total_count_forward\tt_ref_count_forward\tt_alt_count_forward";
