@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <limits.h>
+#include <iomanip>
 #include "api/BamReader.h"
 #include "omp.h"
 
