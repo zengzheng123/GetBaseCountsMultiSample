@@ -1045,8 +1045,8 @@ void sortAndIndexVariant(vector<VariantEntry *>& variant_vec, vector<pair<size_t
 {
     if(variant_vec.size() == 0)
     {
-        cerr << "[ERROR] No variant need to be processed " << endl;
-        exit(1);
+        cout << "[WARNING] No variant need to be processed. A header-only maf output will be generated. " << endl;
+        return;
     }
     cout << "[INFO] Sorting variants" << endl;
     sort(variant_vec.begin(), variant_vec.end(), sortVariantByPos);
@@ -1082,8 +1082,8 @@ void sortAndIndexVariant16K(vector<VariantEntry *>& variant_vec, vector<pair<siz
 {
     if(variant_vec.size() == 0)
     {
-        cerr << "[ERROR] No variant need to be processed " << endl;
-        exit(1);
+        cout << "[WARNING] No variant need to be processed. A header-only maf output will be generated. " << endl;
+        return;
     }
     cout << "[INFO] Sorting variants" << endl;
     sort(variant_vec.begin(), variant_vec.end(), sortVariantByPos);
